@@ -1,5 +1,4 @@
 import streamlit as st
-import pytesseract
 from PIL import Image
 import PyPDF2
 
@@ -11,41 +10,28 @@ def extract_text(file):
             text += page.extract_text()
     else:
         image = Image.open(file)
-        text = pytesseract.image_to_string(image)
+        # Note: We're not using pytesseract here as it was removed from the requirements
+        text = "Image file uploaded (text extraction not implemented)"
     return text
 
-def verify_document(text, customer_data):
-    required_fields = ["Passport Country", "Expiry Date", "Passport Number", "F. Name", "L. Name"]
-    for field in required_fields:
-        if field.lower() not in text.lower():
-            return "Oops! This seems to be the wrong document. Please try again."
-    
-    if len(text) < 50:  # Arbitrary threshold, adjust as needed
-        return "Sorry, please upload a better image for processing."
-    
-    return "Thank you for providing the document. We will update you shortly!"
-
 def main():
-    st.title("Document Verification System - Customer Portal")
+    st.title("Document Upload Portal")
 
-    upload_link = st.text_input("Enter your unique upload link")
-    if st.button("Go to Upload Portal") and upload_link:
-        st.markdown(f"[Click here to upload your document]({upload_link})", unsafe_allow_html=True)
-    
     uploaded_doc = st.file_uploader("Upload your document", type=["pdf", "png", "jpg", "jpeg"])
-    
-    if uploaded_doc is not None and upload_link:
-        # Extract text from the document
+
+    if uploaded_doc is not None:
+        # Extract text from the document (for demonstration purposes)
         extracted_text = extract_text(uploaded_doc)
-        
-        # Verify the document
-        result = verify_document(extracted_text, {})  # Pass customer data here if available
-        
-        st.write(result)
-        
-        # Here you would typically update the status in a database
+
+        # Display a preview of the extracted text
+        st.subheader("Document Preview:")
+        st.text(extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text)
+
+        # Here you would typically save the document or process it further
         # For this example, we'll just display a success message
         st.success("Document uploaded successfully!")
+
+        # You can add additional processing or storage logic here
 
 if __name__ == "__main__":
     main()
