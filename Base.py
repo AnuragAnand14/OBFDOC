@@ -49,7 +49,7 @@ def main():
         st.write(df)
         
         if st.button("Send Trigger Emails"):
-            base_upload_url = "http://localhost:8501"  # Replace with your actual customer portal URL
+            base_upload_url = "https://docsupload.streamlit.app"  # Replace with your actual customer portal URL
             
             for _, row in df.iterrows():
                 unique_id = str(uuid.uuid4())
