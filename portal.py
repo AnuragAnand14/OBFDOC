@@ -88,16 +88,16 @@ def checkpayslip(file):
     structured_model = model.with_structured_output(Payslip)
     response = structured_model.invoke([message])
     if not response.Verification:
-        return "Incorrect Document Uploaded"
-    return is_date_less_than_two_months(response.Date)
+        return -1  # Incorrect Document Uploaded
+    return 1 if is_date_less_than_two_months(response.Date) else -1
 
 def checkbankstatement(file):
     text = extract_text(file)
     structured_model = model.with_structured_output(BankStatement)
     response = structured_model.invoke(text)
     if not response.Verification:
-        return "Incorrect Document Uploaded"
-    return is_difference_at_least_sixty_days(response.Firstdate, response.Lastdate)
+        return -1  # Incorrect Document Uploaded
+    return 1 if is_difference_at_least_sixty_days(response.Firstdate, response.Lastdate) else -1
 
 def extract_text(file):
     file.seek(0)  # Reset file pointer to the beginning
@@ -119,7 +119,6 @@ def main():
 
     # Allow the user to upload the document
     uploaded_doc = st.file_uploader("Upload your document", type=["pdf", "png", "jpg", "jpeg"])
-
 
     if uploaded_doc is not None:
         if document_type == "Payslip":
