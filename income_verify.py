@@ -1,11 +1,10 @@
-from dotenv import load_dotenv
-import os 
+import streamlit as st
 import openai
 from PIL import Image
 import fitz
 import base64
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
@@ -16,11 +15,11 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.pydantic_v1 import BaseModel, Field
 
+# Retrieve API key from Streamlit secrets
+openai_api_key = st.secrets["api"]["key"]
 
-load_dotenv('.env')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-openai.api_key = OPENAI_API_KEY
-os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+# Initialize OpenAI with the API key
+openai.api_key = openai_api_key
 
 def is_date_less_than_two_months(date_str):
     # Parse the input date string to a datetime object
@@ -127,7 +126,7 @@ def checkpayslip(file_path) :
         if response.has_empty_fields() :
             return 0
         
-        #logic for comparing given first and last name to db
+        # logic for comparing given first and last name to db
         if is_date_less_than_two_months(response.Date) :
             return 1
         else :
@@ -146,5 +145,5 @@ def checkbankstatement(file_path) :
         if response.has_empty_fields() :
             return "reupload better image"
         
-        #logic for comparing given first and last name to db
+        # logic for comparing given first and last name to db
         return is_difference_at_least_sixty_days(response.Firstdate, response.Lastdate)
