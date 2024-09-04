@@ -23,7 +23,7 @@ class PassportOutput(BaseModel):
         first_name: str = Field (description="Extract First name in the name,Return string with value NULL if you cannot identify ")
         last_name : str = Field(description="Extract Last name from the name,Return string with value NULL if you cannot identify")
         expiry_date : str = Field(description="What is the Expiry Date of the Passport,Return string with value  NULL if you cannot identify")
-        nationality : str = Field(description="What country does the passport belong to?,Return string with value NULL if you cannot identify")
+        nationality : str = Field(description="What country does the passport belong to? Look for Country code. Top of passport will mention country and region.Return string with value NULL if you cannot identify")
         passport_number: str=Field(description="Find out the passport number,Return string with value NULL if you cannot identify")
 
 
