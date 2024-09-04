@@ -14,6 +14,12 @@ from income_verify import checkbankstatement, checkpayslip
 # Define GitHub raw URLs
 EXCEL_FILE_URL = "https://raw.githubusercontent.com/AnuragAnand14/final/main/ticket_updates.xlsx"  # Replace with your actual GitHub raw URL
 
+# Retrieve API key from Streamlit secrets
+openai_api_key = st.secrets["api"]["key"]
+
+# Initialize OpenAI with the API key
+openai.api_key = openai_api_key
+
 def get_dropdown_names(TicketType):
     if TicketType == "Income":
         return ["Payslip", "Bank Statement"]
