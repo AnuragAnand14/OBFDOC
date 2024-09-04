@@ -119,7 +119,7 @@ def main():
 
     ticket_id = st.text_input("Enter your Ticket ID:")
 
-    excel_file_path = 'https://raw.githubusercontent.com//AnuragAnand14/OBFDOC/main/ticket_updates.xlsx'
+    excel_file_path = '/Users/Angad.Kwatra/Desktop/OBF/OBFDOC/ticket_updates.xlsx'
 
     ticket_type = get_ticket_type(ticket_id, excel_file_path)
 
