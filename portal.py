@@ -120,9 +120,6 @@ def main():
     # Allow the user to upload the document
     uploaded_doc = st.file_uploader("Upload your document", type=["pdf", "png", "jpg", "jpeg"])
 
-    # Additional input for Passport verification
-    first_name = st.text_input("Enter First Name (For Passport Verification Only)")
-    last_name = st.text_input("Enter Last Name (For Passport Verification Only)")
 
     if uploaded_doc is not None:
         if document_type == "Payslip":
