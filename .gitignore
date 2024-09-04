@@ -1,4 +1,7 @@
 .env
 .chainlit
 .files
+
+*.png
+*.jpg
 __pycache__

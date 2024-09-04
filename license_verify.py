@@ -67,9 +67,15 @@ def name_verify(document,first_name, last_name):
         
         if ' ' in document.first_name:
          str1= document.first_name.split(' ')[0].lower()
+        else:
+         str1=document.first_name.lower()
+        
         if ' ' in document.last_name:
-         str2= document.last_name.split(' ')[0].lower() 
-
+            str2= document.last_name.split(' ')[0].lower() 
+        else:
+            str1=document.first_name.lower()
+       
+       
         if str1==first_name and str2==last_name:
             #print("name verified")
             return True
