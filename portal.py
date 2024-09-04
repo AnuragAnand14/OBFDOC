@@ -12,12 +12,10 @@ from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_community.document_loaders import PyPDFLoader
-from dotenv import load_dotenv
 from passport_verify import passport_verify
 
-# Load environment variables
-load_dotenv('.env')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+# Load OpenAI API key from Streamlit secrets
+OPENAI_API_KEY = st.secrets["api"]["openai_key"]
 openai.api_key = OPENAI_API_KEY
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
@@ -140,7 +138,7 @@ def main():
         # Display the result
         st.subheader("Verification Result:")
         if result == -1:
-            st.write("Opps!! This seems to be the wrong document. Please try again")
+            st.write("Oops!! This seems to be the wrong document. Please try again")
         elif result == 0:
             st.write("Sorry, please upload a better image for processing.")
         elif result == 1:
