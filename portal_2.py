@@ -14,6 +14,7 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 #from langchain_community.document_loaders import PyPDFLoader
 from passport_verify import passport_verify
 from license_verify import license_verify
+from income_verify import checkbankstatement,checkpayslip
 
 def get_dropdown_names(TicketType) :
     if TicketType == "Income" :
@@ -90,8 +91,10 @@ def verify_document(document_type,file_path,first_name,last_name):
         result = passport_verify(file_path,first_name,last_name)
     elif document_type == "Driving License":
         result = license_verify(file_path,first_name,last_name)
-    # elif document_type=="Payslip"
-    # elif document_type=="Bank Statement"
+    elif document_type=="Payslip":
+        result = checkpayslip(file_path)
+    elif document_type=="Bank Statement":
+        result = checkbankstatement(file_path)
     
     else:
         result = "Invalid document type."
@@ -132,7 +135,7 @@ def main():
         st.success(f"File saved successfully at {file_path}")
         print(file_path)
 
-        verification_result = verify_document(document_type,file_path,"aanchal","batra")
+        verification_result = verify_document(document_type,file_path,"angela","zoe")
 
     # Show different prompts based on the result of passport_verify()
         if verification_result == -1:
@@ -141,7 +144,7 @@ def main():
             st.warning("Please reupload")
             
         elif verification_result == 1:
-            st.success("Passport verification successful.")
+            st.success(f"{document_type} Verification successful.")
             
         else:
             st.info("Unexpected result from passport verification.")
