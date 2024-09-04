@@ -8,3 +8,14 @@ google-auth
 google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
+streamlit
+Pillow
+PyPDF2
+python-dotenv
+openai
+python-dateutil
+pydantic
+langchain-core
+langchain-openai
+langchain-community
+pymupdf
