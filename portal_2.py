@@ -15,7 +15,7 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 from passport_verify import passport_verify
 from license_verify import license_verify
 from income_verify import checkbankstatement,checkpayslip
-
+import uuid
 import pandas as pd
 
 
@@ -39,6 +39,21 @@ def get_ticket_type(ticket_id, excel_file):
         return ticket_type
     else:
         return "Ticket ID not found."
+
+def get_document_details(csv_file, ticket_id):
+    df = pd.read_csv(csv_file)
+
+# Define the ticket ID you want to search for
+    ticket_id_to_search = "12345"
+
+# Filter the DataFrame based on the given Ticket No
+    filtered_df = df[df["Ticket No"] == ticket_id_to_search]
+
+# Fetch the list of Document Responses and Document Links
+    document_responses = filtered_df["Document Response"].tolist()
+    document_links = filtered_df["Document Link"].tolist()
+
+    return document_links, document_responses
 
 def get_uuid(ticket_id, excel_file):
     df = pd.read_excel(excel_file)
@@ -101,36 +116,49 @@ def verify_document(document_type,file_path,first_name,last_name):
     return result
 
 
-def update_document_attributes(excel_path, verification_result,uuid):
+def update_tickets(csv_file, ticket_id, document_link, document_response):
+
+# Load the tickets CSV file into a DataFrame
+    tickets_csv_file = "tickets.csv"
+    tickets_df = pd.read_csv(csv_file)
+
+    document_responses_str = ', '.join(document_response)
+    document_links_str = ', '.join(document_link)
+
+# Populate the 'Document Response' and 'Document Link' columns in the tickets DataFrame for the given ticket
+    tickets_df.loc[tickets_df["Ticket No"] == ticket_id, "Document Response"] = document_responses_str
+    tickets_df.loc[tickets_df["Ticket No"] == ticket_id, "Document Link"] = document_links_str
+
+# Determine the status based on the document responses
+    status = "done" if all(response == "Verified" for response in document_response) else "pending"
+
+# Populate the 'Status' column in the tickets DataFrame
+    tickets_df.loc[tickets_df["Ticket No"] == ticket_id, "Status"] = status
+
+# Save the updated tickets DataFrame back to the CSV
+    tickets_df.to_csv(tickets_csv_file, index=False)
+
+    print("Tickets CSV updated successfully!")
+
+
+def create_document(doc_path, ticketid, document_type, verification_result):
+    document = {
+        "Document No": str(uuid.uuid4()),
+        "Ticket No": ticketid,
+        "Document Link": doc_path,
+        "Document Type" : document_type,
+        "Document Response": "",
+    }
+    if verification_result == 1:
+        document["Document Response"] = "Verified"
+    elif verification_result == 0:
+        document["Document Response"] = "Reupload"
+    elif verification_result == -1:
+        document["Document Response"] = "Incorrect Document"
     
-    df= pd.read_excel(excel_path)
-    row_to_update = df[df['UUID'] == uuid]
-    df['Document Response'] = df['Document Response'].astype('object')
+    df = pd.DataFrame([document])
 
-    # Check if the row exists
-    if not row_to_update.empty:
-        # Update 'document_response' based on 'result'
-        if verification_result == 1:
-            df.loc[df['UUID'] == uuid, 'Document Response'] = 'Verified'
-            df.loc[df['UUID'] == uuid, 'Status'] = 'Done'  # Also update 'Status' if result is 1
-            print("updated")
-        elif verification_result== 0:
-            df.loc[df['UUID'] == uuid, 'Document Response'] = 'Reupload'
-        elif verification_result== -1:
-            df.loc[df['UUID'] == uuid, 'Document Response'] = 'Incorrect Document'
-
-        print(df)
-        csv_output_path="new.csv"
-        df.to_csv(csv_output_path, index=False)        
-    else:
-        print(f"No row found with uuid: {uuid}")
-
-
-
-
-
-
-
+    print(df)
 
 def main():
     st.title("Document Upload Portal")
@@ -160,9 +188,12 @@ def main():
         print(file_path)
 
         verification_result = verify_document(document_type,file_path,"Arlington","Beech")
-        update_document_attributes(excel_file_path,verification_result,get_uuid(ticket_id,excel_file_path))
-
-        
+        document_df = create_document(file_path, ticket_id, document_type, verification_result)
+        doc_csv_file = "/Users/arjiv_admin/Desktop/OBF doc submission/OBFDOC/documents.csv"
+        document_df.to_csv(doc_csv_file, mode='a', index=False, header=False)
+        document_link, document_responses = get_document_details(doc_csv_file, ticket_id)
+        tick_csv_file = "/Users/arjiv_admin/Desktop/OBF doc submission/OBFDOC/new.csv"
+        update_tickets(csv_file=tick_csv_file, ticket_id= ticket_id, document_link=document_link, document_response=document_responses)
     # Show different prompts based on the result of passport_verify()
         if verification_result == -1:
             st.error(" Please upload the correct document.")
