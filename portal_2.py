@@ -42,7 +42,17 @@ def get_ticket_type(ticket_id, excel_file):
 
 def get_document_details(csv_file, ticket_id):
     df = pd.read_csv(csv_file)
-
+    df = pd.DataFrame(columns=[
+"Document No"
+,
+"Ticket No"
+,
+"Document Link"
+,
+"Document Type"
+,
+"Document Response"
+])
 # Define the ticket ID you want to search for
     ticket_id_to_search = "12345"
 
@@ -119,7 +129,6 @@ def verify_document(document_type,file_path,first_name,last_name):
 def update_tickets(csv_file, ticket_id, document_link, document_response):
 
 # Load the tickets CSV file into a DataFrame
-    tickets_csv_file = "tickets.csv"
     tickets_df = pd.read_csv(csv_file)
 
     document_responses_str = ', '.join(document_response)
@@ -136,7 +145,7 @@ def update_tickets(csv_file, ticket_id, document_link, document_response):
     tickets_df.loc[tickets_df["Ticket No"] == ticket_id, "Status"] = status
 
 # Save the updated tickets DataFrame back to the CSV
-    tickets_df.to_csv(tickets_csv_file, index=False)
+    tickets_df.to_csv(csv_file, index=False)
 
     print("Tickets CSV updated successfully!")
 
@@ -158,8 +167,20 @@ def create_document(doc_path, ticketid, document_type, verification_result):
     
     df = pd.DataFrame([document])
 
-    print(df)
+    file_path = "Document_Database.csv"
 
+    if os.path.exists(file_path):
+        # Load existing CSV into DataFrame
+        existing_df = pd.read_csv(file_path)
+        
+        # Check if the same document link or document ID exists, and update it
+        merged_df = pd.concat([existing_df, df]).drop_duplicates(subset=["Document Link", "Document No"], keep='last')
+    else:
+        # If the file doesn't exist, just use the new DataFrame
+        merged_df = df
+
+    # Save the updated DataFrame to CSV, overwriting the existing file if necessary
+    merged_df.to_csv(file_path, index=False)
 def main():
     st.title("Document Upload Portal")
     
@@ -171,7 +192,7 @@ def main():
 
     ticket_id = st.text_input("Enter your Ticket ID:")
 
-    excel_file_path = '/Users/Angad.Kwatra/Desktop/OBF/OBFDOC/ticket_updates.xlsx'
+    excel_file_path = 'ticket_updates.xlsx'
 
     ticket_type = get_ticket_type(ticket_id, excel_file_path)
 
@@ -184,15 +205,19 @@ def main():
     if uploaded_doc is not None and uploaded_doc != st.session_state.last_uploaded_file:
         file_path = save_uploaded_file(uploaded_doc, document_type, get_uuid(ticket_id, excel_file_path))
         st.session_state.last_uploaded_file = uploaded_doc  # Update the session state with the latest uploaded file
-        st.success(f"File saved successfully at {file_path}")
+        st.success(f"File saved successfully  ")
         print(file_path)
 
         verification_result = verify_document(document_type,file_path,"Arlington","Beech")
-        document_df = create_document(file_path, ticket_id, document_type, verification_result)
-        doc_csv_file = "/Users/arjiv_admin/Desktop/OBF doc submission/OBFDOC/documents.csv"
-        document_df.to_csv(doc_csv_file, mode='a', index=False, header=False)
+        
+        create_document(file_path, ticket_id, document_type, verification_result)
+        doc_csv_file = "Document_Database.csv"
+        
+        
         document_link, document_responses = get_document_details(doc_csv_file, ticket_id)
-        tick_csv_file = "/Users/arjiv_admin/Desktop/OBF doc submission/OBFDOC/new.csv"
+        
+        
+        tick_csv_file = "Ticket_Database.csv"
         update_tickets(csv_file=tick_csv_file, ticket_id= ticket_id, document_link=document_link, document_response=document_responses)
     # Show different prompts based on the result of passport_verify()
         if verification_result == -1:

@@ -1,5 +1,5 @@
 Ticket No,Ticket Type,Customer F. Name,Customer L. Name,Loan Amount,Loan Reference,Product type,Documents requested,Document Link,Document Response,Comment/Remark,Status,UUID
-76081dd3,Fraud,angela,zoe,,,Car Loan,Salary Slip,https://docsupload.streamlit.app?id=2153b7c1-bdc5-4038-a6e9-ff04931608c1,,,Pending,bebf6017-928d-43ae-95f8-3d9fd20293eb
+76081dd3,Fraud,angela,zoe,,,Car Loan,Salary Slip,,,,done,bebf6017-928d-43ae-95f8-3d9fd20293eb
 590ed8b9,Fraud,Anurag,Anand,,,Car Loan,Salary Slip,https://docsupload.streamlit.app?id=1805fd22-b3ad-4278-a6cf-3ba118259cb2,,,Pending,39d99d85-7f27-414e-afda-e099477a3544
 ede51d52,Both,Arjav ,Jain,,,Oakbrook Loans,"Passport,Driving License",https://docsupload.streamlit.app?id=6a277542-322d-4fb1-85b0-20f2d5990c23,Verified,,Done,550a9736-7d4b-46a1-b589-58746497b2c8
 3f78fd9b,Fraud,Angad,Kwatra,,,Finio Loans,Driving License,https://docsupload.streamlit.app?id=1e4b1ce0-3d75-49aa-a0b8-c98d4cef5e70,,,Pending,952d9fdd-22ac-4098-949b-ac9122196ef7
