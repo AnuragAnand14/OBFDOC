@@ -111,7 +111,7 @@ def verify_and_match(document, first_name, last_name):
      if has_null_fields(document)==False:
         
            # Match the provided name with the dictionary values
-        if document.first_name.lower() == first_name and document.last_name.lower() == last_name:
+        if document.first_name.lower() == first_name.lower() and document.last_name.lower() == last_name:
             #Check if passport valid for the next 6 months
             if expiry_check(document.expiry_date) == True :
             #if expiry_check("2025-01-01")==True:    
