@@ -42,22 +42,11 @@ def get_ticket_type(ticket_id, excel_file):
 
 def get_document_details(csv_file, ticket_id):
     df = pd.read_csv(csv_file)
-    df = pd.DataFrame(columns=[
-"Document No"
-,
-"Ticket No"
-,
-"Document Link"
-,
-"Document Type"
-,
-"Document Response"
-])
-# Define the ticket ID you want to search for
-    ticket_id_to_search = "12345"
+    
+
 
 # Filter the DataFrame based on the given Ticket No
-    filtered_df = df[df["Ticket No"] == ticket_id_to_search]
+    filtered_df = df[df["Ticket No"] == ticket_id]
 
 # Fetch the list of Document Responses and Document Links
     document_responses = filtered_df["Document Response"].tolist()
@@ -130,25 +119,43 @@ def update_tickets(csv_file, ticket_id, document_link, document_response):
 
 # Load the tickets CSV file into a DataFrame
     tickets_df = pd.read_csv(csv_file)
-
-    document_responses_str = ', '.join(document_response)
-    document_links_str = ', '.join(document_link)
-
-# Populate the 'Document Response' and 'Document Link' columns in the tickets DataFrame for the given ticket
-    tickets_df.loc[tickets_df["Ticket No"] == ticket_id, "Document Response"] = document_responses_str
-    tickets_df.loc[tickets_df["Ticket No"] == ticket_id, "Document Link"] = document_links_str
-
-# Determine the status based on the document responses
-    status = "done" if all(response == "Verified" for response in document_response) else "pending"
-
-# Populate the 'Status' column in the tickets DataFrame
-    tickets_df.loc[tickets_df["Ticket No"] == ticket_id, "Status"] = status
-
-# Save the updated tickets DataFrame back to the CSV
+        
+        # Check if 'Ticket No' column exists
+    if 'Ticket No' not in tickets_df.columns:
+        raise ValueError("The CSV file must contain a 'Ticket No' column.")
+        
+        # Check if the ticket_id exists in the DataFrame
+    if ticket_id not in tickets_df["Ticket No"].values:
+        raise ValueError(f"Ticket ID {ticket_id} not found in the CSV file.")
+        
+        # Convert lists to strings for storage in CSV
+    document_responses_str = ', '.join(map(str, document_response))
+    document_links_str = ', '.join(map(str, document_link))
+        
+        # Update the 'Document Response' and 'Document Link' columns
+    mask = tickets_df["Ticket No"] == ticket_id
+        
+        # Debug: Print out which rows are being updated
+    print(f"Updating rows for Ticket ID {ticket_id}:")
+    print(tickets_df[mask])
+        
+    tickets_df.loc[mask, "Document Response"] = document_responses_str
+    tickets_df.loc[mask, "Document Link"] = document_links_str
+        
+        # Determine the status based on the document responses
+    status = "All Documents Verified" if all(response == "Verified" for response in document_response) else "Pending Verified Documents"
+        
+        # Update the 'Status' column
+    tickets_df.loc[mask, "Status"] = status
+        
+        # Save the updated tickets DataFrame back to the CSV
     tickets_df.to_csv(csv_file, index=False)
-
+        
     print("Tickets CSV updated successfully!")
 
+def remove_extension(file_path):
+    """Helper function to remove file extension from the file path."""
+    return os.path.splitext(file_path)[0]
 
 def create_document(doc_path, ticketid, document_type, verification_result):
     document = {
@@ -174,7 +181,17 @@ def create_document(doc_path, ticketid, document_type, verification_result):
         existing_df = pd.read_csv(file_path)
         
         # Check if the same document link or document ID exists, and update it
-        merged_df = pd.concat([existing_df, df]).drop_duplicates(subset=["Document Link", "Document No"], keep='last')
+        existing_df['Doc Link Base'] = existing_df['Document Link'].apply(remove_extension)
+        df['Doc Link Base'] = df['Document Link'].apply(remove_extension)
+
+        # Check for duplicates based on the base name of the document link
+        merged_df = pd.concat([existing_df, df]).drop_duplicates(subset=["Doc Link Base"], keep='last')
+        
+        # Drop the temporary 'Doc Link Base' column
+        merged_df = merged_df.drop(columns=["Doc Link Base"])
+        
+        # Save the updated DataFrame back to the CSV
+        merged_df.to_csv(file_path, index=False)
     else:
         # If the file doesn't exist, just use the new DataFrame
         merged_df = df
