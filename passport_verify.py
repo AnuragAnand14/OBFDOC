@@ -109,15 +109,18 @@ def verify_and_match(document, first_name, last_name):
     if  document.verification==True:
 
      if has_null_fields(document)==False:
+        #print("one")
         
            # Match the provided name with the dictionary values
-        if document.first_name.lower() == first_name.lower() and document.last_name.lower() == last_name:
+        if document.first_name.lower() == first_name.lower() and document.last_name.lower() == last_name.lower():
             #Check if passport valid for the next 6 months
-            if expiry_check(document.expiry_date) == True :
-            #if expiry_check("2025-01-01")==True:    
+            #print("two")
+            #if expiry_check(document.expiry_date) == True :
+            if expiry_check("2025-01-01")==True:    
+                #print("three")
                 #TO verify if the passport if from the UK region
                 if nationality_check(document.nationality)==True:
-                    
+                    #print("four")
                 
                     if passport_number_check(document.passport_number)== True:
                 

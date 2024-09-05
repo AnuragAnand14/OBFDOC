@@ -16,6 +16,10 @@ from passport_verify import passport_verify
 from license_verify import license_verify
 from income_verify import checkbankstatement,checkpayslip
 
+import pandas as pd
+
+
+
 def get_dropdown_names(TicketType) :
     if TicketType == "Income" :
         return ["Payslip", "Bank Statement"]
@@ -23,9 +27,6 @@ def get_dropdown_names(TicketType) :
         return ["Passport", "Driving License"]
     elif TicketType == "Both":
         return ["Payslip", "Bank Statement", "Passport", "Driving License"]
-
-
-import pandas as pd
 
 def get_ticket_type(ticket_id, excel_file):
     # Load the Excel file
@@ -39,7 +40,6 @@ def get_ticket_type(ticket_id, excel_file):
     else:
         return "Ticket ID not found."
 
-# Example usage
 def get_uuid(ticket_id, excel_file):
     df = pd.read_excel(excel_file)
     
@@ -101,6 +101,30 @@ def verify_document(document_type,file_path,first_name,last_name):
     return result
 
 
+def update_document_attributes(excel_path, verification_result,uuid):
+    
+    df= pd.read_excel(excel_path)
+    row_to_update = df[df['UUID'] == uuid]
+    df['Document Response'] = df['Document Response'].astype('object')
+
+    # Check if the row exists
+    if not row_to_update.empty:
+        # Update 'document_response' based on 'result'
+        if verification_result == 1:
+            df.loc[df['UUID'] == uuid, 'Document Response'] = 'Verified'
+            df.loc[df['UUID'] == uuid, 'Status'] = 'Done'  # Also update 'Status' if result is 1
+            print("updated")
+        elif verification_result== 0:
+            df.loc[df['UUID'] == uuid, 'Document Response'] = 'Reupload'
+        elif verification_result== -1:
+            df.loc[df['UUID'] == uuid, 'Document Response'] = 'Incorrect Document'
+
+        print(df)
+        csv_output_path="new.csv"
+        df.to_csv(csv_output_path, index=False)        
+    else:
+        print(f"No row found with uuid: {uuid}")
+
 
 
 
@@ -135,17 +159,25 @@ def main():
         st.success(f"File saved successfully at {file_path}")
         print(file_path)
 
-        verification_result = verify_document(document_type,file_path,"angela","zoe")
+        verification_result = verify_document(document_type,file_path,"Arlington","Beech")
+        update_document_attributes(excel_file_path,verification_result,get_uuid(ticket_id,excel_file_path))
 
+        
     # Show different prompts based on the result of passport_verify()
         if verification_result == -1:
             st.error(" Please upload the correct document.")
+
+        
         elif verification_result == 0 :
             st.warning("Please reupload")
             
+        
+        
         elif verification_result == 1:
             st.success(f"{document_type} Verification successful.")
             
+        
+        
         else:
             st.info("Unexpected result from passport verification.")
 
