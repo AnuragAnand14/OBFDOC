@@ -30,7 +30,7 @@ def get_dropdown_names(TicketType) :
 
 def get_ticket_type(ticket_id, excel_file):
     # Load the Excel file
-    df = pd.read_excel(excel_file)
+    df = pd.read_csv(excel_file)
     
     # Check if the Ticket ID exists in the DataFrame
     if ticket_id in df['Ticket No'].values:
@@ -55,7 +55,7 @@ def get_document_details(csv_file, ticket_id):
     return document_links, document_responses
 
 def get_uuid(ticket_id, excel_file):
-    df = pd.read_excel(excel_file)
+    df = pd.read_csv(excel_file)
     
     # Check if the Ticket ID exists in the DataFrame
     if ticket_id in df['Ticket No'].values:
@@ -209,7 +209,7 @@ def main():
 
     ticket_id = st.text_input("Enter your Ticket ID:")
 
-    excel_file_path = 'ticket_updates.xlsx'
+    excel_file_path = 'Ticket_Database.csv'
 
     ticket_type = get_ticket_type(ticket_id, excel_file_path)
 
@@ -217,6 +217,26 @@ def main():
 
 # Allow the user to upload the document
     uploaded_doc = st.file_uploader("Upload your document", type=["pdf", "png", "jpg", "jpeg"])
+
+
+    if st.button("All documents submitted"):
+        # When the button is clicked, execute the document submission process
+       
+
+        try:
+            # Get document details
+            doc_csv_file = "Document_Database.csv"
+            
+            document_link, document_responses = get_document_details(doc_csv_file, ticket_id)
+
+            # Update tickets
+            tick_csv_file = "Ticket_Database.csv"
+            update_tickets(csv_file=tick_csv_file, ticket_id=ticket_id, 
+                           document_link=document_link, document_response=document_responses)
+
+            st.success("Documents submitted successfully!")
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
 
 # Only save the file if a new file has been uploaded
     if uploaded_doc is not None and uploaded_doc != st.session_state.last_uploaded_file:
@@ -229,13 +249,17 @@ def main():
         
         create_document(file_path, ticket_id, document_type, verification_result)
         doc_csv_file = "Document_Database.csv"
+
+
+
+    
         
         
-        document_link, document_responses = get_document_details(doc_csv_file, ticket_id)
-        
-        
-        tick_csv_file = "Ticket_Database.csv"
-        update_tickets(csv_file=tick_csv_file, ticket_id= ticket_id, document_link=document_link, document_response=document_responses)
+        # document_link, document_responses = get_document_details(doc_csv_file, ticket_id)
+        # tick_csv_file = "Ticket_Database.csv"
+        # update_tickets(csv_file=tick_csv_file, ticket_id= ticket_id, document_link=document_link, document_response=document_responses)
+   
+   
     # Show different prompts based on the result of passport_verify()
         if verification_result == -1:
             st.error(" Please upload the correct document.")
