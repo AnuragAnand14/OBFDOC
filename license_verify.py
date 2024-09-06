@@ -76,7 +76,7 @@ def name_verify(document,first_name, last_name):
             str2=document.last_name.lower()
        
        
-        if str1==first_name and str2==last_name:
+        if str1==first_name.lower() and str2==last_name.lower():
             #print("name verified")
             return True
         else:
