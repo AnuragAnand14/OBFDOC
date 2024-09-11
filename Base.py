@@ -1,29 +1,46 @@
 import streamlit as st
 import pandas as pd
 import uuid
+import os
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 import base64
 from email.mime.text import MIMEText
-import openpyxl
 from twilio.rest import Client
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
+
+# Load environment variables from .env filexx
+load_dotenv()
+st.set_page_config(page_title="CRM", layout="wide")
+# Retrieve environment variables
+DB_HOST = os.getenv('DB_HOST')
+DB_NAME = os.getenv('DB_NAME')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 
 # Gmail API setup
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
-# File paths
-CSV_FILE_PATH = "/Users/anurag.anand/BRAG/random_customer_data.csv"
-EXCEL_FILE_PATH = "/Users/anurag.anand/BRAG/ticket_updates.xlsx"
-
 # Twilio setup
-account_sid = 'ACc5c1fc0f9f12f7d3f20c09f2002cfd05'
-auth_token = '9dc5846028432bd394b4cb2ab08fa802'
-twilio_client = Client(account_sid, auth_token)
+twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+# PostgreSQL connection
+def get_db_connection():
+    return psycopg2.connect(
+            host=DB_HOST,
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD
+        )
 
 # Set page config for wide layout
-st.set_page_config(layout="wide")
+
 
 # CSS styling
 st.markdown("""
@@ -60,9 +77,9 @@ st.markdown("""
     .customer-info {
         margin-bottom: 0.5rem;
     }
-    .ticket-container {
-        display: flex;
-        flex-wrap: wrap;
+    .ticket-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
         gap: 0.5rem;
         margin-top: 0.5rem;
     }
@@ -71,8 +88,6 @@ st.markdown("""
         padding: 0.75rem;
         border-radius: 8px;
         border: 1px solid #e2e8f0;
-        flex: 1 1 calc(33.333% - 0.5rem);
-        min-width: 200px;
     }
     .ticket-header {
         font-weight: bold;
@@ -126,7 +141,7 @@ st.markdown("""
         font-size: 18px !important;
         color: #333 !important;
         border-bottom: 1px solid #ddd !important;
-            
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -139,7 +154,7 @@ def get_gmail_service():
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+                'credentials1.json', SCOPES)
             creds = flow.run_local_server(port=0)
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
@@ -159,44 +174,31 @@ def send_email(to_email, subject, body):
         print(f"An error occurred: {e}")
         return False
 
-def create_ticket(row, unique_link):
-    ticket = {
-        "UUID": str(uuid.uuid4()),
-        "Ticket No": str(uuid.uuid4())[:8],
-        "Ticket Type": row.get('Verification Type',''),
-        "Customer F. Name": row.get('F.Name', ''),
-        "Customer L. Name": row.get('L.Name', ''),
-        "Loan Amount": row.get('Loan Amount', ''),
-        "Loan Reference": row.get('Loan Reference', ''),
-        "Product type": row.get('Product type', ''),
-        "Documents requested": row.get('Documents requested', ''),
-        "Document Link": unique_link,
-        "Document Response": "",
-        "Comment/Remark": "",
-        "Status": "Pending"
-    }
-    update_excel_file(ticket)
-    return ticket
-
-def update_excel_file(ticket):
+def create_ticket(row):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     try:
-        df = pd.read_excel(EXCEL_FILE_PATH)
-    except FileNotFoundError:
-        df = pd.DataFrame(columns=["UUID", "Ticket No", "Ticket Type", "Customer F. Name", "Customer L. Name", 
-                                   "Loan Amount", "Loan Reference", "Product type", "Documents requested", 
-                                   "Document Link", "Document Response", "Comment/Remark", "Status"])
-    
-    new_row = pd.DataFrame([{k: v for k, v in ticket.items() if v}])
-    df = pd.concat([df, new_row], ignore_index=True)
-    df.to_excel(EXCEL_FILE_PATH, index=False)
+        cur.execute("""
+            INSERT INTO obf_tickets (user_id, ticket_type, created_at, status, comments)
+            VALUES (%s, %s, NOW(), 'Pending', %s)
+            RETURNING id, ticket_type, created_at, status
+        """, (row['id'], row['ticket_type'], "Awaiting document upload"))
+        ticket = cur.fetchone()
+        conn.commit()
+        return ticket
+    finally:
+        cur.close()
+        conn.close()
 
-def fetch_tickets_from_excel():
+def fetch_tickets():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     try:
-        df = pd.read_excel(EXCEL_FILE_PATH)
-        return df.to_dict('records')
-    except FileNotFoundError:
-        st.error(f"Excel file not found: {EXCEL_FILE_PATH}")
-        return []
+        cur.execute("SELECT * FROM obf_tickets WHERE deleted_at IS NULL")
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
 
 def send_whatsapp_message(to_number, message):
     try:
@@ -211,18 +213,26 @@ def send_whatsapp_message(to_number, message):
         return False, f"Error sending WhatsApp message: {e}"
 
 def send_trigger_to_all(df):
-    for index, row in df.iterrows():
-        unique_id = str(uuid.uuid4())
-        unique_link = f"https://docsupload.streamlit.app?id={unique_id}"
-        message = f"""Hi {row.get('F.Name', '')} {row.get('L.Name','')},We have reviewed your application for {row.get('Product type', '')} and request you to upload {row.get('Documents requested', '')} document to proceed further.Please use the button below to upload:<a href="{unique_link}" style="display: inline-block; padding: 10px 20px; font-size: 16px; color: #ffffff; background-color: #007bff; text-align: center; text-decoration: none; border-radius: 5px;">Upload Document</a>Thank you"""
+    for _, row in df.iterrows():
+        ticket = create_ticket(row)
+        unique_link = f"https://q97wqzd4-8502.inc1.devtunnels.ms/?ticket_id={ticket['id']}"
         
-        if send_email(row.get('Email', ''), "Document Upload Request", message):
-            st.session_state.tickets.append(create_ticket(row, unique_link))
-            st.success(f"Email sent to {row.get('Email', '')}!")
+        message = f"""Hi {row['first_name']} {row['last_name']},
+
+We have reviewed your application for {row['product_type']} and request you to upload documents to proceed further.
+
+Please use this link to upload: {unique_link}
+
+Your ticket number is: {ticket['id']}
+
+Thank you"""
         
-        success, result = send_whatsapp_message(row.get('Phone', ''), message)
+        if send_email(row['email'], "Document Upload Request", message):
+            st.success(f"Email sent to {row['email']}!")
+        
+        success, result = send_whatsapp_message(row['phone_number'], message)
         if success:
-            st.success(f"WhatsApp Reminder Sent to {row.get('F.Name', '')}!")
+            st.success(f"WhatsApp Reminder Sent to {row['first_name']}!")
         else:
             st.error(result)
 
@@ -236,19 +246,22 @@ def main():
 
     st.markdown("---")
 
-    # Load data from the CSV file
+    # Load data from the database
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     try:
-        df = pd.read_csv(CSV_FILE_PATH)
+        cur.execute("SELECT * FROM obf_users WHERE deleted_at IS NULL AND is_active = TRUE")
+        df = pd.DataFrame(cur.fetchall())
         st.success("Data loaded successfully")
     except Exception as e:
-        st.error(f"Error loading file: {e}")
+        st.error(f"Error loading data: {e}")
         return
+    finally:
+        cur.close()
+        conn.close()
 
-    # Fetch tickets from the Excel file
-    tickets = fetch_tickets_from_excel()
-
-    if 'tickets' not in st.session_state:
-        st.session_state.tickets = []
+    # Fetch tickets from the database
+    tickets = fetch_tickets()
 
     # Button to send trigger to all
     if st.button("Contact All Users"):
@@ -256,63 +269,80 @@ def main():
 
     # Display all customer details with individual trigger buttons
     st.subheader("Customer Details")
-    for index, row in df.iterrows():
+    for _, row in df.iterrows():
         with st.container():
             st.markdown('<div class="customer-card">', unsafe_allow_html=True)
             
             # Customer info and trigger buttons
             col1, col2, col3 = st.columns([3, 2, 2])
             with col1:
-                st.markdown(f'<div class="customer-info"><strong>{row.get("F.Name", "")} {row.get("L.Name", "")}</strong></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="customer-info"><strong>Email:</strong> {row.get("Email", "")}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="customer-info"><strong>Phone:</strong> {row.get("Phone", "")}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="customer-info"><strong>{row["first_name"]} {row["last_name"]}</strong></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="customer-info"><strong>Email:</strong> {row["email"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="customer-info"><strong>Phone:</strong> {row["phone_number"]}</div>', unsafe_allow_html=True)
             with col2:
-                st.markdown(f'<div class="customer-info"><strong>Product:</strong> {row.get("Product type", "")}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="customer-info"><strong>Verification:</strong> {row.get("Verification Type", "")}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="customer-info"><strong>Product:</strong> {row["product_type"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="customer-info"><strong>Verification:</strong> {row["ticket_type"]}</div>', unsafe_allow_html=True)
             with col3:
                 st.markdown('<div class="contact-buttons">', unsafe_allow_html=True)
-                if st.button("Contact via Email", key=f"email_{index}"):
-                    unique_id = str(uuid.uuid4())
-                    unique_link = f"https://docsupload.streamlit.app?id={unique_id}"
-                    email_body =f"""Hi {row.get('F.Name', '')} {row.get('L.Name','')},We have reviewed your application for {row.get('Product type', '')} and request you to upload {row.get('Documents requested', '')} document to proceed further.Please use the button below to upload:<a href="{unique_link}" style="display: inline-block; padding: 10px 20px; font-size: 16px; color: #ffffff; background-color: #007bff; text-align: center; text-decoration: none; border-radius: 5px;">Upload Document</a>Thank you"""
-                    if send_email(row.get('Email', ''), "Document Upload Request", email_body):
-                        st.session_state.tickets.append(create_ticket(row, unique_link))
-                        st.success(f"Email sent to {row.get('Email', '')}!")
+                if st.button("Contact via Email", key=f"email_{row['id']}"):
+                    ticket = create_ticket(row)
+                    unique_link = f"https://q97wqzd4-8502.inc1.devtunnels.ms/?ticket_id={ticket['id']}"
+                    
+                    email_body = f"""Hi {row['first_name']} {row['last_name']},
+
+We have reviewed your application for {row['product_type']} and request you to upload documents to proceed further.
+
+Please use this link to upload: {unique_link}
+Your ticket number is: {ticket['id']}
+
+Thank you"""
+                    
+                    if send_email(row['email'], "Document Upload Request", email_body):
+                        st.success(f"Email sent to {row['email']}!")
                 
-                if st.button("Contact via WhatsApp", key=f"whatsapp_{index}"):
-                    unique_id = str(uuid.uuid4())
-                    unique_link = f"https://docsupload.streamlit.app?id={unique_id}"
-                    whatsapp_message = f"Hi {row.get('F.Name', '')} {row.get('L.Name', '')},\n\nWe have reviewed your application for {row.get('Product type', '')} and request you to upload {row.get('Documents requested', '')} document to proceed further.\n\nPlease use this link to upload: {unique_link}\n\nThank you"
-                    success, result = send_whatsapp_message(row.get('Phone', ''), whatsapp_message)
+                if st.button("Contact via WhatsApp", key=f"whatsapp_{row['id']}"):
+                    ticket = create_ticket(row)
+                    unique_link = f"https://q97wqzd4-8502.inc1.devtunnels.ms/?ticket_id={ticket['id']}"
+                    
+                    whatsapp_message = f"""Hi {row['first_name']} {row['last_name']},
+
+We have reviewed your application for {row['product_type']} and request you to upload documents to proceed further.
+
+Please use this link to upload: {unique_link}
+Your ticket number is: {ticket['id']}
+
+Thank you"""
+                    
+                    success, result = send_whatsapp_message(row['phone_number'], whatsapp_message)
                     if success:
-                        st.session_state.tickets.append(create_ticket(row, unique_link))
-                        st.success(f"WhatsApp message sent to {row.get('Phone', '')}!")
+                        st.success(f"WhatsApp message sent to {row['phone_number']}!")
                     else:
                         st.error(result)
                 st.markdown('</div>', unsafe_allow_html=True)
-
-            # Display tickets related to the current customer
-            customer_tickets = [ticket for ticket in tickets if ticket["Customer F. Name"] == row.get('F.Name', '') and ticket["Customer L. Name"] == row.get('L.Name', '')]
+            # Display tickets related to the current customer in a grid format
+            customer_tickets = [ticket for ticket in tickets if ticket["user_id"] == row['id']]
             if customer_tickets:
-                st.markdown('<div class="ticket-container">', unsafe_allow_html=True)
-                for ticket in customer_tickets:
-                    st.markdown(f"""
-                    <div class="ticket-card">
-                        <div class="ticket-header">Ticket No: {ticket["Ticket No"]}</div>
-                        <div class="ticket-info"><strong>Ticket Type:</strong> {ticket["Ticket Type"]}</div>
-                        <div class="ticket-info"><strong>Documents Requested:</strong> {ticket["Documents requested"]}</div>
-                        <div class="ticket-info"><strong>Status:</strong> {ticket["Status"]}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                st.markdown('<div class="ticket-grid">', unsafe_allow_html=True)
+                cols = st.columns(3)  # Create 3 columns for the grid
+                for idx, ticket in enumerate(customer_tickets):
+                    with cols[idx % 3]:  # Distribute tickets across the columns
+                        st.markdown(f"""
+                        <div class="ticket-card">
+                            <div class="ticket-header">Ticket No: {ticket["id"]}</div>
+                            <div class="ticket-info"><strong>Ticket Type:</strong> {ticket["ticket_type"]}</div>
+                            <div class="ticket-info"><strong>Created At:</strong> {ticket["created_at"]}</div>
+                            <div class="ticket-info"><strong>Status:</strong> {ticket["status"]}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
-            # Display the Excel file in a collapsible format
-    with st.expander("View Ticket Updates Excel File", expanded=False):
+
+    # Display the tickets in a collapsible format
+    with st.expander("View Ticket Updates", expanded=False):
         st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
         try:
-            df_excel = pd.read_excel(EXCEL_FILE_PATH)
-            # Display the dataframe with Streamlit's default styling, but apply additional CSS
-            st.dataframe(df_excel.style.set_properties(**{
+            df_tickets = pd.DataFrame(tickets)
+            st.dataframe(df_tickets.style.set_properties(**{
                 'background-color': '#f0f2f6',
                 'color': '#333',
                 'border-color': 'white'
@@ -320,10 +350,9 @@ def main():
                 {'selector': 'thead th', 'props': [('background-color', '#1E3A8A'), ('color', 'white'), ('font-weight', 'bold')]},
                 {'selector': 'tbody td', 'props': [('padding', '10px'), ('border-bottom', '1px solid #ddd')]}
             ]))
-        except FileNotFoundError:
-            st.error(f"Excel file not found: {EXCEL_FILE_PATH}")
         except Exception as e:
-            st.error(f"Error loading Excel file: {e}")
+            st.error(f"Error loading ticket data: {e}")
         st.markdown('</div>', unsafe_allow_html=True)
+
 if __name__ == "__main__":
     main()
