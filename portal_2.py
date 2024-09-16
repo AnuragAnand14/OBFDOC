@@ -2,290 +2,316 @@ import streamlit as st
 from PIL import Image
 import PyPDF2
 import os
+import time
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import openai
 import fitz
 import base64
 from io import BytesIO
+import io
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.pydantic_v1 import BaseModel, Field
-#from langchain_community.document_loaders import PyPDFLoader
 from passport_verify import passport_verify
 from license_verify import license_verify
-from income_verify import checkbankstatement,checkpayslip
+from income_verify import checkbankstatement, checkpayslip
 import uuid
 import pandas as pd
+import psycopg2
+from psycopg2 import sql
+from urllib.parse import urlparse, parse_qs
+
+# Adjust PATH for Homebrew
+os.environ['PATH'] += os.pathsep + '/opt/homebrew/bin'
+
+# Streamlit page configuration
+st.set_page_config(page_title="OBF Document Validator", layout="wide")
+
+# Database connection
+try:
+    connection = psycopg2.connect(
+        host='bci-rd.postgres.database.azure.com',
+        database='postgres',
+        user='pgadmin',
+        password='5y62<Rluh'
+    )
+    cursor = connection.cursor()
+except psycopg2.Error as e:
+    st.error(f"Failed to connect to the database: {e}")
+    st.stop()
+
+def load_css(file_path):
+    with open(file_path) as f:
+        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
+# Load CSS
+load_css('styles2.css')
+
+def is_valid_uuid(val):
+    try:
+        uuid.UUID(str(val))
+        return True
+    except ValueError:
+        return False
 
 
+def get_dropdown_names(TicketType):
+    """Get document types based on ticket type."""
+    options = {
+        "Income": ["Payslip", "Bank Statement"],
+        "Fraud": ["Passport", "Driving License"],
+        "Both": ["Payslip", "Bank Statement", "Passport", "Driving License"]
+    }
+    return options.get(TicketType, [])
 
-def get_dropdown_names(TicketType) :
-    if TicketType == "Income" :
-        return ["Payslip", "Bank Statement"]
-    elif TicketType == "Fraud" :
-        return ["Passport", "Driving License"]
-    elif TicketType == "Both":
-        return ["Payslip", "Bank Statement", "Passport", "Driving License"]
-
-def get_ticket_type(ticket_id, excel_file):
-    # Load the Excel file
-    df = pd.read_csv(excel_file)
+def get_ticket_type(ticket_id):
+    """Retrieve ticket type from database."""
+    if not ticket_id or not is_valid_uuid(ticket_id):
+        return None
     
-    # Check if the Ticket ID exists in the DataFrame
-    if ticket_id in df['Ticket No'].values:
-        # Retrieve the Ticket Type based on the Ticket ID
-        ticket_type = df.loc[df['Ticket No'] == ticket_id, 'Ticket Type'].values[0]
-        return ticket_type
-    else:
-        return "Ticket ID not found."
+    query = sql.SQL("SELECT ticket_type FROM obf_tickets WHERE id = %s")
+    try:
+        cursor.execute(query, (ticket_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except psycopg2.Error as e:
+        st.error(f"Database error: {e}")
+        return None
 
-def get_document_details(csv_file, ticket_id):
-    df = pd.read_csv(csv_file)
-    
+def get_document_details(ticket_id):
+    """Fetch document links and verification responses."""
+    query = """
+    SELECT document_link, verification_response
+    FROM obf_documents
+    WHERE ticket_id = %s
+    """
+    try:
+        cursor.execute(query, (ticket_id,))
+        result = cursor.fetchall()
+        return [row[0] for row in result], [row[1] for row in result]
+    except psycopg2.Error as e:
+        st.error(f"Database error: {e}")
+        return [], []
 
-
-# Filter the DataFrame based on the given Ticket No
-    filtered_df = df[df["Ticket No"] == ticket_id]
-
-# Fetch the list of Document Responses and Document Links
-    document_responses = filtered_df["Document Response"].tolist()
-    document_links = filtered_df["Document Link"].tolist()
-
-    return document_links, document_responses
-
-def get_uuid(ticket_id, excel_file):
-    df = pd.read_csv(excel_file)
-    
-    # Check if the Ticket ID exists in the DataFrame
-    if ticket_id in df['Ticket No'].values:
-        # Retrieve the Ticket Type based on the Ticket ID
-        uuid = df.loc[df['Ticket No'] == ticket_id, 'UUID'].values[0]
-        return uuid
-    else:
-        return "UUIID not found."
+def get_uuid(ticket_id):
+    """Get user ID associated with the ticket."""
+    query = "SELECT user_id FROM obf_tickets WHERE id = %s"
+    try:
+        cursor.execute(query, (ticket_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except psycopg2.Error as e:
+        st.error(f"Database error: {e}")
+        return None
 
 def save_uploaded_file(uploaded_file, folder_path, save_name):
-    """
-    Save an uploaded file to a specified folder with a given name.
-    If the save_name does not have an extension, the function adds the original file's extension.
-    
-    Parameters:
-        uploaded_file (UploadedFile): The file uploaded by the user.
-        folder_path (str): The folder where the file should be saved.
-        save_name (str): The name to save the file as (without extension).
-        
-    Returns:
-        str: The full file path where the file was saved.
-    """
-    if uploaded_file is not None and save_name:
-        # Extract the original file extension
+    """Save uploaded file to specified path."""
+    if uploaded_file and save_name:
         original_filename = uploaded_file.name
         _, file_extension = os.path.splitext(original_filename)
-        
-        # Append the extension to save_name if not provided
-        if not os.path.splitext(save_name)[1]:  # Check if save_name has no extension
+        if not os.path.splitext(save_name)[1]:
             save_name += file_extension
-        
-        # Ensure the folder exists
         os.makedirs(folder_path, exist_ok=True)
-        
-        # Full path to save the file
         file_path = os.path.join(folder_path, save_name)
-        
-        # Save the file to the specified location
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
-        
         return file_path
     return None
 
-def verify_document(document_type,file_path,first_name,last_name):
-    if document_type == "Passport":
-        result = passport_verify(file_path,first_name,last_name)
-    elif document_type == "Driving License":
-        result = license_verify(file_path,first_name,last_name)
-    elif document_type=="Payslip":
-        result = checkpayslip(file_path)
-    elif document_type=="Bank Statement":
-        result = checkbankstatement(file_path)
-    
-    else:
-        result = "Invalid document type."
-    return result
+def verify_document(document_type, file_path, first_name, last_name):
+    """Verify document based on its type."""
+    verify_functions = {
+        "Passport": passport_verify,
+        "Driving License": license_verify,
+        "Payslip": checkpayslip,
+        "Bank Statement": checkbankstatement
+    }
+    verify_func = verify_functions.get(document_type)
+    if verify_func:
+        return verify_func(file_path, first_name, last_name) if document_type in ["Passport", "Driving License"] else verify_func(file_path)
+    return "Invalid document type."
 
+def create_document(doc_path, ticketid, document_type, verification_result, user_id):
+    """Create or update document record in database."""
+    if user_id is None:
+        st.error("User ID not found for the given ticket.")
+        return
 
-def update_tickets(csv_file, ticket_id, document_link, document_response):
-
-# Load the tickets CSV file into a DataFrame
-    tickets_df = pd.read_csv(csv_file)
-        
-        # Check if 'Ticket No' column exists
-    if 'Ticket No' not in tickets_df.columns:
-        raise ValueError("The CSV file must contain a 'Ticket No' column.")
-        
-        # Check if the ticket_id exists in the DataFrame
-    if ticket_id not in tickets_df["Ticket No"].values:
-        raise ValueError(f"Ticket ID {ticket_id} not found in the CSV file.")
-        
-        # Convert lists to strings for storage in CSV
-    document_responses_str = ', '.join(map(str, document_response))
-    document_links_str = ', '.join(map(str, document_link))
-        
-        # Update the 'Document Response' and 'Document Link' columns
-    mask = tickets_df["Ticket No"] == ticket_id
-        
-        # Debug: Print out which rows are being updated
-    print(f"Updating rows for Ticket ID {ticket_id}:")
-    print(tickets_df[mask])
-        
-    tickets_df.loc[mask, "Document Response"] = document_responses_str
-    tickets_df.loc[mask, "Document Link"] = document_links_str
-        
-        # Determine the status based on the document responses
-    status = "All Documents Verified" if all(response == "Verified" for response in document_response) else "Pending Verified Documents"
-        
-        # Update the 'Status' column
-    tickets_df.loc[mask, "Status"] = status
-        
-        # Save the updated tickets DataFrame back to the CSV
-    tickets_df.to_csv(csv_file, index=False)
-        
-    print("Tickets CSV updated successfully!")
-
-def remove_extension(file_path):
-    """Helper function to remove file extension from the file path."""
-    return os.path.splitext(file_path)[0]
-
-def create_document(doc_path, ticketid, document_type, verification_result):
     document = {
         "Document No": str(uuid.uuid4()),
-        "Ticket No": ticketid,
+        "Ticket ID": ticketid,
         "Document Link": doc_path,
-        "Document Type" : document_type,
-        "Document Response": "",
+        "Document Name": document_type,
+        "Verification Response": "",
+        "User ID": user_id
     }
-    if verification_result == 1:
-        document["Document Response"] = "Verified"
-    elif verification_result == 0:
-        document["Document Response"] = "Reupload"
-    elif verification_result == -1:
-        document["Document Response"] = "Incorrect Document"
-    
-    df = pd.DataFrame([document])
+    document["Verification Response"] = {1: "Verified", 0: "Reupload", -1: "Incorrect Document"}.get(verification_result, "Unknown")
 
-    file_path = "Document_Database.csv"
+    check_query = """
+    SELECT id FROM obf_documents WHERE ticket_id = %s AND user_id = %s AND document_link LIKE %s
+    """
+    doc_link_base = os.path.splitext(document["Document Link"])[0]
+    try:
+        cursor.execute(check_query, (ticketid, user_id, f"{doc_link_base}%"))
+        existing_document = cursor.fetchone()
 
-    if os.path.exists(file_path):
-        # Load existing CSV into DataFrame
-        existing_df = pd.read_csv(file_path)
-        
-        # Check if the same document link or document ID exists, and update it
-        existing_df['Doc Link Base'] = existing_df['Document Link'].apply(remove_extension)
-        df['Doc Link Base'] = df['Document Link'].apply(remove_extension)
+        if existing_document:
+            update_query = """
+            UPDATE obf_documents
+            SET document_name = %s, document_link = %s, verification_response = %s, ticket_id = %s, user_id = %s, modified_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """
+            cursor.execute(update_query, (
+                document["Document Name"], document["Document Link"], document["Verification Response"],
+                document["Ticket ID"], document["User ID"], existing_document[0]
+            ))
+        else:
+            insert_query = """
+            INSERT INTO obf_documents (document_name, document_link, verification_response, ticket_id, user_id, created_at, modified_at)
+            VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+            cursor.execute(insert_query, (
+                document["Document Name"], document["Document Link"], document["Verification Response"],
+                document["Ticket ID"], document["User ID"]
+            ))
+        connection.commit()
+    except psycopg2.Error as e:
+        st.error(f"Database error: {e}")
+        connection.rollback()
 
-        # Check for duplicates based on the base name of the document link
-        merged_df = pd.concat([existing_df, df]).drop_duplicates(subset=["Doc Link Base"], keep='last')
-        
-        # Drop the temporary 'Doc Link Base' column
-        merged_df = merged_df.drop(columns=["Doc Link Base"])
-        
-        # Save the updated DataFrame back to the CSV
-        merged_df.to_csv(file_path, index=False)
-    else:
-        # If the file doesn't exist, just use the new DataFrame
-        merged_df = df
+def update_tickets(ticket_id, document_responses):
+    """Update ticket status based on document verification."""
+    all_verified = all(response == "Verified" for response in document_responses)
 
-    # Save the updated DataFrame to CSV, overwriting the existing file if necessary
-    merged_df.to_csv(file_path, index=False)
+    try:
+        update_query = """
+            UPDATE obf_tickets
+            SET all_documents_submitted = TRUE
+            WHERE id = %s;
+        """
+        cursor.execute(update_query, (ticket_id,))
+
+        if all_verified:
+            update_status_query = """
+            UPDATE obf_tickets
+            SET status = 'Resolved'
+            WHERE id = %s;
+            """
+            cursor.execute(update_status_query, (ticket_id,))
+
+        connection.commit()
+    except psycopg2.Error as e:
+        st.error(f"Database error: {e}")
+        connection.rollback()
+
+def get_ticket_id_from_url():
+    """Extract ticket ID from URL parameters."""
+    return st.query_params.get("ticket_id", None)
+
 def main():
-    st.title("Document Upload Portal")
-    
-   
+    st.title("OBF Document Validator")
 
-# Initialize session state to track the uploaded file
-    if 'last_uploaded_file' not in st.session_state:
-            st.session_state.last_uploaded_file = None
+    if "last_uploaded_file" not in st.session_state:
+        st.session_state.last_uploaded_file = None
 
-    ticket_id = st.text_input("Enter your Ticket ID:")
+    # Get ticket_id from URL parameter
+    url_ticket_id = get_ticket_id_from_url()
 
-    excel_file_path = 'Ticket_Database.csv'
+    col1, col2 = st.columns(2)
+    with col1:
+        # Auto-populate ticket ID if available in URL
+        ticket_id = st.text_input("Enter your Ticket ID:", value=url_ticket_id, key="ticket_id")
+        
+        if ticket_id:
+            ticket_type = get_ticket_type(ticket_id)
+            if ticket_type:
+                dropdown_options = get_dropdown_names(ticket_type)
+                if dropdown_options:
+                    document_type = st.selectbox(
+                        "Select document type", dropdown_options
+                    )
+                    uploaded_doc = st.file_uploader(
+                        "Upload your document", type=["pdf", "png", "jpg", "jpeg"]
+                    )
+                else:
+                    st.error(f"No document types available for ticket type: {ticket_type}")
+                    return
+            else:
+                st.error("Invalid Ticket ID. Please enter a valid Ticket ID.")
+                return
+        else:
+            st.warning("Please enter a Ticket ID to proceed.")
+            return
 
-    ticket_type = get_ticket_type(ticket_id, excel_file_path)
+    if uploaded_doc is not None:
+        file_type = uploaded_doc.type
+        # Preview for image files
+        with col2:
+            if file_type in ["image/jpeg", "image/jpg", "image/png"]:
+                st.text("Image Preview:")
+                image = Image.open(uploaded_doc)
+                st.image(image, caption="Uploaded Image", use_column_width=True)
+            # Preview for PDF files
+            elif file_type == "application/pdf":
+                st.text("PDF Preview:")
+                try:
+                    # Use PyMuPDF to render the first page of the PDF
+                    pdf_document = fitz.open(stream=uploaded_doc.read(), filetype="pdf")
+                    first_page = pdf_document[0]
+                    pix = first_page.get_pixmap()
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    st.image(img, caption="First page of PDF", use_column_width=True)
+                    
+                    # Get additional information about the PDF
+                    num_pages = len(pdf_document)
+                    st.write(f"Number of pages: {num_pages}")
+                except Exception as e:
+                    st.error(f"Error processing PDF: {str(e)}")
 
-    document_type = st.selectbox("Select document type", get_dropdown_names(ticket_type))
+        if uploaded_doc != st.session_state.last_uploaded_file:
+            user_id = get_uuid(ticket_id)
+            if user_id:
+                file_path = save_uploaded_file(
+                    uploaded_doc, document_type, user_id
+                )
+                st.session_state.last_uploaded_file = uploaded_doc
 
-# Allow the user to upload the document
-    uploaded_doc = st.file_uploader("Upload your document", type=["pdf", "png", "jpg", "jpeg"])
+                verification_result = verify_document(
+                    document_type, file_path, "arlington", "beech"
+                )
+                create_document(file_path, ticket_id, document_type, verification_result, user_id)
 
+                time.sleep(3)
+                
+                if verification_result == -1:
+                    st.error(
+                        f"This does not seem to be a valid {document_type.lower()}. Please reupload the requested document."
+                    )
+                elif verification_result == 0:
+                    st.warning(
+                        f"Unable to verify your details. Please reupload {document_type.lower()} with correct details."
+                    )
+                elif verification_result == 1:
+                    st.success(f"{document_type} Verification Successful.")
+                    st.toast(f"{document_type} verified successfully!", icon="✅")
+                else:
+                    st.info("Unexpected result from verification.")
+            else:
+                st.error("Unable to process the document. User ID not found.")
+        else:
+            st.info("No new file uploaded, or file already saved.")
 
-    if st.button("All documents submitted"):
-        # When the button is clicked, execute the document submission process
-       
-
+    if st.button("All documents submitted", key="all_submitted"):
         try:
-            # Get document details
-            doc_csv_file = "Document_Database.csv"
-            
-            document_link, document_responses = get_document_details(doc_csv_file, ticket_id)
-
-            # Update tickets
-            tick_csv_file = "Ticket_Database.csv"
-            update_tickets(csv_file=tick_csv_file, ticket_id=ticket_id, 
-                           document_link=document_link, document_response=document_responses)
-
+            document_links, document_responses = get_document_details(ticket_id)
+            update_tickets(
+                ticket_id=ticket_id,
+                document_responses=document_responses
+            )
             st.success("Documents submitted successfully!")
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
-
-# Only save the file if a new file has been uploaded
-    if uploaded_doc is not None and uploaded_doc != st.session_state.last_uploaded_file:
-        file_path = save_uploaded_file(uploaded_doc, document_type, get_uuid(ticket_id, excel_file_path))
-        st.session_state.last_uploaded_file = uploaded_doc  # Update the session state with the latest uploaded file
-        st.success(f"File saved successfully  ")
-        print(file_path)
-
-        verification_result = verify_document(document_type,file_path,"Arlington","Beech")
-        
-        create_document(file_path, ticket_id, document_type, verification_result)
-        doc_csv_file = "Document_Database.csv"
-
-
-
-    
-        
-        
-        # document_link, document_responses = get_document_details(doc_csv_file, ticket_id)
-        # tick_csv_file = "Ticket_Database.csv"
-        # update_tickets(csv_file=tick_csv_file, ticket_id= ticket_id, document_link=document_link, document_response=document_responses)
-   
-   
-    # Show different prompts based on the result of passport_verify()
-        if verification_result == -1:
-            st.error(" Please upload the correct document.")
-
-        
-        elif verification_result == 0 :
-            st.warning("Please reupload")
-            
-        
-        
-        elif verification_result == 1:
-            st.success(f"{document_type} Verification successful.")
-            
-        
-        
-        else:
-            st.info("Unexpected result from passport verification.")
-
-    
-    
-    else:
-        st.info("No new file uploaded, or file already saved.")
-
-    
-
-
 
 if __name__ == "__main__":
     main()
